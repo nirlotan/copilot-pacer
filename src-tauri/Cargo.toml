@@ -1,0 +1,43 @@
+[package]
+name = "copilot-pacer"
+version = "0.1.0"
+description = "Menu-bar / tray app that paces your GitHub Copilot credit usage against working days"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "copilot_pacer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+tokio = { version = "1", features = ["time", "sync", "macros"] }
+# Default features use the OS TLS stack (and OS trust store), which matters
+# behind corporate TLS-inspecting proxies.
+reqwest = { version = "0.12", features = ["json", "socks"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
