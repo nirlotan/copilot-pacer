@@ -1,123 +1,225 @@
-# Copilot Pacer
+<h1 align="center">Copilot Pacer</h1>
 
-A small macOS menu-bar / Windows system-tray app that shows how fast you're
-using your **GitHub Copilot credits** (premium requests) compared with a
-*healthy* pace for the billing cycle. The healthy pace is spread over **your
-working days only**: weekends, public holidays and personal days off don't count.
+<p align="center">
+  <b>Know if your GitHub Copilot credits will last the month, at a glance.</b><br>
+  A tiny menu-bar (macOS) and system-tray (Windows) app that compares how much
+  Copilot you've used with how much you <i>should</i> have used by now,
+  counting only your working days.
+</p>
 
-- **Tray icon**: a ring filled to your usage and coloured by pace (green =
-  at or under pace, amber = slightly over, red = over by more than your
-  tolerance). A tick marks where usage *should* be now. On macOS the
-  percentage is shown next to the icon.
-- **Popup** (click the icon): % used vs. healthy %, a chart of usage against
-  the pace line for the cycle, your daily budget for the rest of the cycle,
-  a projection to the reset date, and upcoming days off.
-- **Settings**: reset day of month (default the 1st), working weekdays,
-  working hours, holiday calendars for any country/region (bundled, works
-  offline), personal days off, refresh interval, over-pace notifications,
-  launch at login, and proxy settings (automatic detection, including PAC
-  files, or manual).
+<p align="center">
+  <a href="https://github.com/nirlotan/copilot-pacer/releases/latest/download/Copilot-Pacer-macOS.dmg"><b>⬇ Download for macOS</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/nirlotan/copilot-pacer/releases/latest/download/Copilot-Pacer-Windows-Setup.exe"><b>⬇ Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/nirlotan/copilot-pacer/releases/latest">All downloads</a>
+</p>
 
-## How "healthy" is calculated
+<p align="center">
+  <a href="https://github.com/nirlotan/copilot-pacer/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/nirlotan/copilot-pacer?label=release"></a>
+  <a href="https://github.com/nirlotan/copilot-pacer/actions/workflows/build.yml"><img alt="Build" src="https://github.com/nirlotan/copilot-pacer/actions/workflows/build.yml/badge.svg"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-blue">
+</p>
 
-Each working day in the cycle gets an equal share of 100%. Days before
-today count fully; today counts in proportion to how much of your working
-hours (default 09:00–18:00) has passed. Non-working days add nothing, so the
-line stays flat over weekends and holidays.
+<p align="center">
+  <img src="docs/popup.png" width="340" alt="Copilot Pacer popup: 14% credits used vs 29% healthy by now, 15.7 points under pace, chart of usage against the healthy line, daily budget 5.6% per work day">
+</p>
+
+---
+
+## Why
+
+The Copilot extension tells you that you've used **14%** of your credits.
+It doesn't tell you whether that's a lot.
+
+On the 9th of the month it's fine. On the 27th, after a week off, it's a
+different story. Copilot Pacer works out a **healthy usage line** for the
+billing cycle that ignores weekends, public holidays and your days off, then
+shows whether you're ahead of it or behind it. You won't run dry before the
+reset, and you won't leave half your credits unused either.
+
+## Features
+
+<img align="right" src="docs/tray-states.png" width="420" alt="Tray icon states: green on pace, amber slightly ahead, red over pace">
+
+- **One glance in the menu bar.** A ring fills up with your usage and turns
+  **green**, **amber** or **red** depending on your pace. A small tick marks
+  where you should be today. On macOS your % sits right next to it.
+- **Click for the full picture:** % used vs. % healthy, how far ahead or
+  behind you are, and a chart of your usage against the healthy line for the
+  whole cycle.
+- **A daily budget:** "5.6% per work day" tells you how much you can use
+  for the rest of the cycle and still make it.
+- **A forecast:** "46% by reset" shows where you'll land at your current rate.
+- **Counts working days only:**
+  - choose your work week (Mon–Fri, Sun–Thu, anything) and working hours;
+  - add **public holidays for 200+ countries and regions** (built in, works
+    offline) plus your own days off;
+  - today counts in proportion to your working hours elapsed.
+- **A heads-up when you're over pace:** a notification at most once a day,
+  with a tolerance you choose.
+- **Your billing cycle:** credits reset on the 1st by default. Pick any day
+  if your plan differs.
+- **Works on corporate networks.** It finds your proxy automatically,
+  including PAC/WPAD auto-config files, or you can enter one yourself.
+- **Light and dark mode**, launch at login, and a small footprint (a native
+  app of about 10 MB, not Electron).
+
+<br clear="right">
+
+## Download & install
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| **macOS** 10.15+ (Apple Silicon & Intel) | [Copilot-Pacer-macOS.dmg](https://github.com/nirlotan/copilot-pacer/releases/latest/download/Copilot-Pacer-macOS.dmg) | Universal app |
+| **Windows** 10/11 (x64) | [Copilot-Pacer-Windows-Setup.exe](https://github.com/nirlotan/copilot-pacer/releases/latest/download/Copilot-Pacer-Windows-Setup.exe) | Recommended installer |
+| Windows (MSI, for managed deployment) | [Copilot-Pacer-Windows.msi](https://github.com/nirlotan/copilot-pacer/releases/latest/download/Copilot-Pacer-Windows.msi) | |
+
+Older versions and release notes are on the [Releases page](https://github.com/nirlotan/copilot-pacer/releases).
+
+### macOS
+
+1. Open `Copilot-Pacer-macOS.dmg` and drag **Copilot Pacer** into **Applications**.
+2. Launch it. A ring appears in the menu bar; there's no Dock icon.
+3. If macOS says the app "can't be opened" or "is damaged" (builds that
+   aren't notarized yet), run this once in Terminal:
+   ```sh
+   xattr -cr "/Applications/Copilot Pacer.app"
+   ```
+   Or right-click the app → **Open** → **Open**.
+
+### Windows
+
+1. Run `Copilot-Pacer-Windows-Setup.exe`.
+2. If SmartScreen shows "Windows protected your PC", click **More info →
+   Run anyway**.
+3. The ring appears in the system tray. If it's hidden, click the **^** arrow
+   and drag the icon onto the taskbar to keep it visible.
+
+## Getting started
+
+1. **Click the tray icon** and choose **Sign in with GitHub**. Your browser
+   opens GitHub's device page and the code is copied for you. Paste it and
+   approve.
+   > 💡 GitHub signs in **whichever account your browser is logged into**.
+   > Check the "Signed in as …" line on that page. If it's the wrong
+   > account, sign out on github.com first or open the link in a private
+   > window.
+
+   Already use the [GitHub CLI](https://cli.github.com)? If you're logged in
+   with `gh`, Copilot Pacer picks that up automatically and you can skip this.
+2. **Open Settings (⚙)** and set your work week, working hours, holiday
+   countries and any days off. Israeli time zones start with a Sun–Thu week
+   and Israeli holidays; everyone else starts with Mon–Fri.
+3. That's it. Usage refreshes every 10 minutes (configurable), and the
+   healthy line moves every minute.
+
+<p align="center">
+  <img src="docs/settings.png" width="340" alt="Settings: billing cycle reset day, work week toggles, working hours, holiday calendars">
+</p>
+
+## How the healthy line works
+
+Each working day in your cycle gets an equal slice of 100%. Weekends,
+holidays and days off get nothing, so the line stays flat across them.
+Today's slice fills up gradually during your working hours.
 
 ```
-healthy % = (working days elapsed + today's fraction) / working days in cycle × 100
-daily budget = (100 − used %) / working days left
+healthy % = working days elapsed (incl. part of today) ÷ working days in cycle × 100
+daily budget = (100 − used %) ÷ working days left
 ```
 
-The cycle runs from the reset day to the day before the next reset. If you
-pick the 31st, shorter months reset on their last day. Holidays that run
-sunset to sunset (e.g. Jewish holidays) count only for the actual day.
+| Colour | Meaning |
+| --- | --- |
+| 🟢 Green | At or below the healthy line |
+| 🟠 Amber | Above it, but within your tolerance (default 5 points) |
+| 🔴 Red | Above it by more than your tolerance (you'll get a notification) |
 
-## Where the number comes from
+## Corporate networks & proxies
 
-The app calls `GET https://api.github.com/copilot_internal/user`, the same
-endpoint the Copilot editor extensions use for their usage meter, and reads
-the `premium_interactions` quota (shown as "Credits" in VS Code).
-**This endpoint is undocumented and may change.** Parsing is defensive, and
-if it breaks you'll see the error in the popup.
+Behind a company proxy? By default (**Settings → Network → Automatic**),
+Copilot Pacer finds your proxy the way your OS does, including PAC/WPAD
+auto-config files on both macOS and Windows. It also falls back to the
+`HTTPS_PROXY` set in your shell. **Settings → Network** shows which proxy it's
+using and where that came from. You can also enter one manually
+(`http://`, `https://` or `socks5://`) or turn the proxy off.
 
-Sign-in, in order of preference:
+If your organisation uses SAML single sign-on, GitHub may ask you to
+authorise the sign-in for your organisation.
 
-1. **Sign in with GitHub** (device flow). Uses the public OAuth client ID of
-   GitHub's Copilot editor plugins (`Iv1.b507a08c87ecfe98`), scope `read:user`.
-   The token is stored in the macOS Keychain / Windows Credential Manager.
-2. **GitHub CLI**: if you're logged in with `gh`, its token is used
-   automatically (`gh auth token`). Some `gh` tokens aren't accepted by the
-   Copilot endpoint. In that case the popup asks you to use option 1.
+## Privacy
 
-### Proxies
+- Copilot Pacer talks **only to GitHub**: the same usage endpoint the
+  Copilot editor extensions use, plus GitHub sign-in.
+- Your token stays in the **macOS Keychain / Windows Credential Manager**.
+- Settings and a small usage history stay on your computer. No analytics,
+  no telemetry, no servers of ours.
 
-Settings → Network → **Proxy** has three modes:
+## FAQ
 
-- **Automatic (default)** checks, in order: proxy environment variables; on
-  macOS the system proxy (`scutil --proxy`), including **PAC / WPAD** files,
-  which are evaluated with the built-in JavaScript engine (`osascript`); on
-  Windows the system resolver (`WebRequest.GetSystemWebProxy`, which handles
-  PAC/WPAD); and finally the `HTTPS_PROXY` / `ALL_PROXY` your login shell sets.
-  The result is cached and detected again after a network error (e.g. VPN
-  on/off), or when you click **Detect again**.
-- **Manual** uses an `http://`, `https://` or `socks5://` proxy URL you enter.
-- **No proxy** always connects directly.
+**It's showing the wrong GitHub account.**
+Copilot Pacer prefers an account added with *Sign in with GitHub*. Otherwise
+it uses the active GitHub CLI account. Go to Settings → Account → **Sign in
+with GitHub instead** and approve the sign-in in a browser logged into the
+right account. Or run `gh auth switch -u <user>` and restart the app.
 
-Proxies that require NTLM/Kerberos authentication aren't supported.
+**My company's reset date isn't the 1st.**
+Change *Settings → Billing cycle → Credits reset on day*. If it differs from
+the date GitHub reports, the popup shows GitHub's date next to the cycle.
 
-If your organisation enforces SAML SSO, you may need to authorise the token
-for the org on github.com when prompted.
+**I see "Could not reach GitHub".**
+You're probably behind a proxy. Open **Settings → Network** and click
+**Detect again**, or enter your proxy manually.
 
-Nothing else leaves your machine. Settings and a small usage history live in
-the app config directory (`~/Library/Application Support/com.copilot-pacer.tray`
-on macOS, `%APPDATA%\com.copilot-pacer.tray` on Windows).
+**Will it keep working if GitHub changes things?**
+The usage figure comes from the same (undocumented) endpoint that powers the
+Copilot meter in VS Code. If GitHub changes it, the popup will show an error,
+and an update will follow.
 
-## Install
+---
 
-Grab the `.dmg` (macOS, universal) or `.exe` / `.msi` (Windows) from the
-GitHub Actions run artifacts, or from a draft release when you push a `v*` tag.
+## For developers
 
-The builds are **unsigned**:
-
-- **macOS**: after copying to Applications, run
-  `xattr -cr "/Applications/Copilot Pacer.app"` once, or right-click → Open.
-- **Windows**: SmartScreen may warn; choose *More info → Run anyway*.
-
-## Develop
-
-Prerequisites: Node 20+, Rust (stable), and the
-[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
+Built with [Tauri 2](https://v2.tauri.app) (Rust) and a small vanilla
+TypeScript UI.
 
 ```sh
 npm install
-npm run tauri dev        # run with hot reload
-npm test                 # TypeScript unit tests
-npm run test:rust        # Rust unit tests (pacing math, icon, parsing)
-npm run tauri build      # build installers for the current OS
+npm run tauri dev       # run locally with hot reload
+npm test                # TypeScript tests
+npm run test:rust       # Rust tests (pacing math, icon, parsing, proxy)
+npm run tauri build     # installers for the current OS
 ```
 
-Project layout:
+Prerequisites: Node 20+, Rust stable, and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
+
+**Releasing:** bump `version` in `package.json`, `src-tauri/tauri.conf.json`
+and `src-tauri/Cargo.toml`, then:
+
+```sh
+git commit -am "v0.2.0" && git tag v0.2.0 && git push && git push --tags
+```
+
+GitHub Actions builds the macOS (universal) and Windows installers and
+publishes a release with fixed file names, so the download links above always
+point at the newest version. Every push to `main` also builds installers,
+which you can download from the run's **Artifacts**.
+
+<details>
+<summary>Project layout</summary>
 
 | Path | What |
 | --- | --- |
-| `src-tauri/src/pace.rs` | Cycle bounds, working-day pacing, pace curve (pure, tested) |
-| `src-tauri/src/icon.rs` | Tray gauge renderer (pure RGBA, tested) |
-| `src-tauri/src/api.rs` | Copilot usage client + defensive parsing |
-| `src-tauri/src/auth.rs` | Keychain, `gh` token lookup, GitHub device flow |
+| `src-tauri/src/pace.rs` | Billing cycle, working-day pacing, pace curve |
+| `src-tauri/src/icon.rs` | Tray gauge renderer |
+| `src-tauri/src/api.rs` | Copilot usage client |
+| `src-tauri/src/auth.rs` | Keychain, `gh` token lookup, GitHub device sign-in |
 | `src-tauri/src/proxy.rs`, `proxy_util.rs`, `pac_eval.js` | Automatic proxy detection (env, macOS PAC via JXA, Windows resolver, login shell) |
-| `src-tauri/src/store.rs` | Settings + usage history persistence |
-| `src-tauri/src/lib.rs` | Tray, popup window, polling loop, commands, notifications |
-| `src/` | Popup UI (vanilla TypeScript + Vite), holiday calendars via `date-holidays` |
+| `src-tauri/src/store.rs` | Settings and usage history |
+| `src-tauri/src/lib.rs` | Tray, popup window, polling, commands, notifications |
+| `src/` | Popup UI and holiday calendars (`date-holidays`) |
 
-Regenerate the app icons with `node scripts/make-icons.cjs` (needs `sharp`)
-or `npx tauri icon path/to/1024.png`.
+</details>
 
-## Notes
-
-- Polling defaults to every 10 minutes. The healthy line and tray colour are
-  recalculated every minute in between.
-- Over-pace notifications fire at most once per day.
-- If your org's reset date differs from the reset day you set, the popup
-  shows GitHub's date next to the cycle.
+<sub>Copilot Pacer is an independent project and is not affiliated with or endorsed by GitHub.</sub>
