@@ -540,6 +540,29 @@ fn position_near(w: &WebviewWindow, rect: tauri::Rect) {
     let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
+/// macOS: let the popup appear on every Space, including over full-screen
+/// apps (which live in their own Space). Without this, clicking the menu-bar
+/// icon while a full-screen app is in front opens the popup on the desktop
+/// Space, out of sight.
+#[cfg(target_os = "macos")]
+fn float_over_all_spaces(w: &WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+    let Ok(ptr) = w.ns_window() else { return };
+    if ptr.is_null() {
+        return;
+    }
+    // SAFETY: Tauri returns the window's live NSWindow, and this runs on the
+    // main thread (app setup).
+    let ns_window: &NSWindow = unsafe { &*ptr.cast::<NSWindow>() };
+    let mut behavior = ns_window.collectionBehavior();
+    behavior.remove(NSWindowCollectionBehavior::MoveToActiveSpace);
+    behavior.insert(NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary);
+    ns_window.setCollectionBehavior(behavior);
+    // NSStatusWindowLevel: above full-screen app content, like other
+    // menu-bar popovers.
+    ns_window.setLevel(25);
+}
+
 fn show_window(app: &AppHandle, anchor: Option<tauri::Rect>) {
     let Some(w) = app.get_webview_window(WINDOW) else { return };
     match anchor {
@@ -1143,6 +1166,12 @@ pub fn run() {
                 .build(app)?;
 
             // --- Popup behaviour -------------------------------------------
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(w) = app.get_webview_window(WINDOW) {
+                    float_over_all_spaces(&w);
+                }
+            }
             if let Some(w) = app.get_webview_window(WINDOW) {
                 let handle = app.handle().clone();
                 w.on_window_event(move |event| match event {
