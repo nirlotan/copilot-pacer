@@ -38,14 +38,46 @@ pub struct Release {
 
 pub const UNREACHABLE: &str = "Couldn't reach GitHub";
 
-pub async fn latest(http: &reqwest::Client) -> Result<Release, String> {
-    let resp = http
+async fn request_latest(http: &reqwest::Client, token: Option<&str>) -> Result<reqwest::Response, String> {
+    let mut req = http
         .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))
         .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .send()
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if let Some(t) = token {
+        // Signed-in requests get 5,000/hour per user instead of 60/hour per
+        // IP address (which is shared by everyone behind a company network).
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+    req.send()
         .await
-        .map_err(|e| format!("{UNREACHABLE}: {}", crate::api::error_chain(&e)))?;
+        .map_err(|e| format!("{UNREACHABLE}: {}", crate::api::error_chain(&e)))
+}
+
+/// For a 403/429: if GitHub says the rate limit is used up, a message with
+/// when it resets; otherwise None (some other refusal).
+fn rate_limit_message(resp: &reqwest::Response) -> Option<String> {
+    let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let exhausted = header("x-ratelimit-remaining").as_deref() == Some("0") || header("retry-after").is_some();
+    if !exhausted {
+        return None;
+    }
+    let reset = header("x-ratelimit-reset")
+        .and_then(|r| r.parse::<i64>().ok())
+        .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+        .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string());
+    Some(match reset {
+        Some(at) => format!("GitHub's rate limit was reached. Try again after {at}."),
+        None => "GitHub's rate limit was reached. Try again in a while.".into(),
+    })
+}
+
+/// `token`: the user's GitHub token, if signed in. Falls back to an anonymous
+/// request if GitHub rejects the token.
+pub async fn latest(http: &reqwest::Client, token: Option<&str>) -> Result<Release, String> {
+    let mut resp = request_latest(http, token).await?;
+    if token.is_some() && resp.status().as_u16() == 401 {
+        resp = request_latest(http, None).await?;
+    }
     let status = resp.status().as_u16();
     match status {
         200 => {}
@@ -54,7 +86,16 @@ pub async fn latest(http: &reqwest::Client) -> Result<Release, String> {
                 "No published release found on github.com/{REPO}. The repository must be public and have at least one release."
             ))
         }
-        403 | 429 => return Err("GitHub's rate limit was reached. Try again in a while.".into()),
+        403 | 429 => {
+            if let Some(msg) = rate_limit_message(&resp) {
+                return Err(msg);
+            }
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!(
+                "GitHub refused the update check: {}",
+                crate::api::short_message(&body)
+            ));
+        }
         _ => return Err(format!("GitHub returned HTTP {status} when checking for updates.")),
     }
     let r: GhRelease = resp

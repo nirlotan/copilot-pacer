@@ -697,10 +697,12 @@ async fn run_update_check(app: AppHandle, shared: Arc<Shared>, manual: bool) {
 
 async fn check_and_download(app: &AppHandle, shared: &Shared) -> Result<(), String> {
     let http = http_client(shared, false).await?;
-    let release = match update::latest(&http).await {
+    // Use the account the app is already signed in with (higher rate limit).
+    let token = resolve_token(shared, false).await.map(|t| t.0);
+    let release = match update::latest(&http, token.as_deref()).await {
         Ok(r) => r,
         Err(e) if e.starts_with(update::UNREACHABLE) && proxy_is_auto(shared) => {
-            update::latest(&http_client(shared, true).await?).await?
+            update::latest(&http_client(shared, true).await?, token.as_deref()).await?
         }
         Err(e) => return Err(e),
     };

@@ -127,7 +127,7 @@ pub async fn fetch_usage(http: &reqwest::Client, token: &str, now_unix: i64) -> 
     parse_usage(&v, now_unix).map_err(FetchError::Parse)
 }
 
-fn short_message(body: &str) -> String {
+pub(crate) fn short_message(body: &str) -> String {
     if let Ok(v) = serde_json::from_str::<Value>(body) {
         if let Some(m) = v.get("message").and_then(Value::as_str) {
             return m.to_string();
