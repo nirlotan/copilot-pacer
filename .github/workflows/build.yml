@@ -14,8 +14,8 @@ jobs:
   test:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
@@ -41,8 +41,8 @@ jobs:
             rust-targets: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
@@ -73,6 +73,41 @@ jobs:
             echo "::notice::No Apple signing secrets set; building an unsigned app."
             exit 0
           fi
+          # Check the certificate before handing it to the build, so mistakes
+          # produce a clear message instead of a failed `tauri build`.
+          CERT="$RUNNER_TEMP/check.p12"
+          KC="$RUNNER_TEMP/check.keychain-db"
+          if ! printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT" 2>/dev/null || [ ! -s "$CERT" ]; then
+            echo "::error::APPLE_CERTIFICATE isn't valid base64. Re-create it with: base64 -i cert.p12 | tr -d '\n' | gh secret set APPLE_CERTIFICATE"
+            exit 1
+          fi
+          security create-keychain -p check "$KC"
+          security unlock-keychain -p check "$KC"
+          if ! security import "$CERT" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign >/dev/null; then
+            echo "::error::Couldn't import APPLE_CERTIFICATE: wrong APPLE_CERTIFICATE_PASSWORD, or the .p12 doesn't contain the private key (export it from 'My Certificates' in Keychain Access)."
+            exit 1
+          fi
+          ALL_IDS="$(security find-identity -p codesigning "$KC")"
+          echo "Identities in the certificate:"; echo "$ALL_IDS"
+          if ! grep -qF "\"$APPLE_SIGNING_IDENTITY\"" <<<"$ALL_IDS"; then
+            echo "::error::APPLE_SIGNING_IDENTITY ('$APPLE_SIGNING_IDENTITY') doesn't match the certificate. It must be a 'Developer ID Application: …' identity (not 'Apple Development' / 'Apple Distribution'); see the list above."
+            exit 1
+          fi
+          if ! security find-identity -v -p codesigning "$KC" | grep -qF "\"$APPLE_SIGNING_IDENTITY\""; then
+            echo "Certificate chain incomplete on this runner: installing Apple's Developer ID intermediate certificates."
+            for c in DeveloperIDG2CA.cer DeveloperIDCA.cer; do
+              curl -fsSL "https://www.apple.com/certificateauthority/$c" -o "$RUNNER_TEMP/$c" &&
+                sudo security import "$RUNNER_TEMP/$c" -k /Library/Keychains/System.keychain || true
+            done
+            if ! security find-identity -v -p codesigning "$KC" | grep -qF "\"$APPLE_SIGNING_IDENTITY\""; then
+              echo "::error::The signing certificate isn't valid (expired or revoked?). Valid identities:"
+              security find-identity -v -p codesigning "$KC"
+              exit 1
+            fi
+          fi
+          security delete-keychain "$KC"; rm -f "$CERT"
+          echo "✓ Certificate OK: $APPLE_SIGNING_IDENTITY"
+
           {
             echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
             echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
@@ -96,10 +131,10 @@ jobs:
             } >> "$GITHUB_ENV"
             echo "Signing + notarizing with an Apple ID."
           else
-            echo "::warning::Signing without notarization (no API key or Apple ID secrets)."
+            echo "::warning::Signing WITHOUT notarization: add the secrets APPLE_API_ISSUER, APPLE_API_KEY and APPLE_API_KEY_P8 (or APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID). Users will see a Gatekeeper warning until then."
           fi
       - run: npx tauri build --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: copilot-pacer-${{ matrix.target }}
           if-no-files-found: error
@@ -116,7 +151,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           path: artifacts
       - name: Rename installers
