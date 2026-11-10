@@ -1,6 +1,6 @@
 [package]
 name = "copilot-pacer"
-version = "0.1.1"
+version = "0.1.2"
 description = "Menu-bar / tray app that paces your GitHub Copilot credit usage against working days"
 edition = "2021"
 rust-version = "1.77"

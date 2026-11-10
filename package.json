@@ -1,7 +1,7 @@
 {
   "name": "copilot-pacer",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Menu-bar / system-tray app that paces your GitHub Copilot credit usage against working days",
   "scripts": {
