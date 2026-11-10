@@ -1,6 +1,8 @@
 mod api;
 mod auth;
 mod icon;
+#[cfg(target_os = "macos")]
+mod macos_panel;
 mod pace;
 mod proxy;
 mod proxy_util;
@@ -540,29 +542,6 @@ fn position_near(w: &WebviewWindow, rect: tauri::Rect) {
     let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
-/// macOS: let the popup appear on every Space, including over full-screen
-/// apps (which live in their own Space). Without this, clicking the menu-bar
-/// icon while a full-screen app is in front opens the popup on the desktop
-/// Space, out of sight.
-#[cfg(target_os = "macos")]
-fn float_over_all_spaces(w: &WebviewWindow) {
-    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
-    let Ok(ptr) = w.ns_window() else { return };
-    if ptr.is_null() {
-        return;
-    }
-    // SAFETY: Tauri returns the window's live NSWindow, and this runs on the
-    // main thread (app setup).
-    let ns_window: &NSWindow = unsafe { &*ptr.cast::<NSWindow>() };
-    let mut behavior = ns_window.collectionBehavior();
-    behavior.remove(NSWindowCollectionBehavior::MoveToActiveSpace);
-    behavior.insert(NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary);
-    ns_window.setCollectionBehavior(behavior);
-    // NSStatusWindowLevel: above full-screen app content, like other
-    // menu-bar popovers.
-    ns_window.setLevel(25);
-}
-
 fn show_window(app: &AppHandle, anchor: Option<tauri::Rect>) {
     let Some(w) = app.get_webview_window(WINDOW) else { return };
     match anchor {
@@ -574,7 +553,14 @@ fn show_window(app: &AppHandle, anchor: Option<tauri::Rect>) {
         }
     }
     let _ = w.show();
-    let _ = w.set_focus();
+    // macOS: focusing normally would activate the app and switch away from a
+    // full-screen app's Space; the panel takes focus without activating.
+    #[cfg(target_os = "macos")]
+    macos_panel::show_panel(&w);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = w.set_focus();
+    }
     let _ = app.emit("popup-shown", ());
 }
 
@@ -1169,7 +1155,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 if let Some(w) = app.get_webview_window(WINDOW) {
-                    float_over_all_spaces(&w);
+                    macos_panel::convert_to_panel(&w);
                 }
             }
             if let Some(w) = app.get_webview_window(WINDOW) {

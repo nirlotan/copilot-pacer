@@ -29,6 +29,7 @@ reqwest = { version = "0.12", features = ["json", "socks"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 # Window behaviour Tauri doesn't expose (showing the popup over full-screen apps).
+objc2 = "0.6"
 objc2-app-kit = "0.3"
 
 [target.'cfg(windows)'.dependencies]
