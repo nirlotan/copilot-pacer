@@ -5,6 +5,8 @@ mod pace;
 mod proxy;
 mod proxy_util;
 mod store;
+mod update;
+mod version;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -12,9 +14,10 @@ use std::time::{Duration, Instant};
 use chrono::{Datelike, Local, TimeZone, Timelike};
 use serde::Serialize;
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
+use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -40,6 +43,31 @@ struct Inner {
     device_login_gen: u64,
     /// Cached automatic proxy decision.
     proxy: Option<proxy::Resolved>,
+    /// Whether the OS will start us at login (mirrors the autostart plugin).
+    launch_at_login: bool,
+    /// This build's version, e.g. "0.1.0".
+    version: String,
+    update: UpdateState,
+    last_update_check: Option<Instant>,
+    notified_update: Option<String>,
+}
+
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct UpdateState {
+    /// "" (never checked) | "checking" | "upToDate" | "downloading" | "ready"
+    /// | "noInstaller" | "error"
+    state: String,
+    /// Started from the UI / tray menu (show the result), not the daily check.
+    manual: bool,
+    latest: Option<String>,
+    release_url: Option<String>,
+    /// 0.0–1.0 while downloading.
+    progress: Option<f64>,
+    /// Downloaded installer path.
+    file: Option<String>,
+    error: Option<String>,
+    checked_at: Option<i64>,
 }
 
 pub struct Shared {
@@ -136,6 +164,9 @@ struct StatusPayload {
     fetching: bool,
     settings: store::Settings,
     network: NetworkView,
+    launch_at_login: bool,
+    version: String,
+    update: UpdateState,
 }
 
 fn build_status(shared: &Shared) -> StatusPayload {
@@ -209,6 +240,9 @@ fn build_status(shared: &Shared) -> StatusPayload {
             },
         },
         settings: inner.settings.clone(),
+        launch_at_login: inner.launch_at_login,
+        version: inner.version.clone(),
+        update: inner.update.clone(),
     }
 }
 
@@ -334,6 +368,14 @@ fn proxy_is_auto(shared: &Shared) -> bool {
 /// detected proxy is cached; `redetect` forces a fresh detection (e.g. after
 /// a network error, since VPN/Wi-Fi changes alter the right answer).
 async fn http_client(shared: &Shared, redetect: bool) -> Result<reqwest::Client, String> {
+    http_client_with_timeout(shared, redetect, Duration::from_secs(20)).await
+}
+
+async fn http_client_with_timeout(
+    shared: &Shared,
+    redetect: bool,
+    timeout: Duration,
+) -> Result<reqwest::Client, String> {
     let (mode, manual, cached) = {
         let inner = shared.lock();
         (inner.settings.proxy_mode.clone(), inner.settings.proxy_url.clone(), inner.proxy.clone())
@@ -356,7 +398,7 @@ async fn http_client(shared: &Shared, redetect: bool) -> Result<reqwest::Client,
             }
         }
     };
-    api::client(&choice)
+    api::client_with_timeout(&choice, timeout)
 }
 
 async fn fetch_once(shared: &Shared) -> Result<api::Usage, String> {
@@ -433,6 +475,16 @@ async fn poll_loop(app: AppHandle, shared: Arc<Shared>) {
                 Some(t) => t.elapsed() >= Duration::from_secs(inner.settings.refresh_minutes as u64 * 60),
             }
         };
+        let update_due = {
+            let inner = shared.lock();
+            inner.settings.check_updates
+                && inner
+                    .last_update_check
+                    .map_or(true, |t| t.elapsed() >= Duration::from_secs(24 * 3600))
+        };
+        if update_due {
+            tauri::async_runtime::spawn(run_update_check(app.clone(), shared.clone(), false));
+        }
         if due {
             do_fetch(&app, &shared).await;
         } else {
@@ -522,6 +574,189 @@ fn toggle_window(app: &AppHandle, anchor: tauri::Rect) {
 }
 
 // ---------------------------------------------------------------------------
+// Launch at login + Dock / taskbar
+// ---------------------------------------------------------------------------
+
+/// Tray-menu checkboxes, kept in sync with the settings screen.
+struct TrayChecks {
+    login: CheckMenuItem<tauri::Wry>,
+    dock: CheckMenuItem<tauri::Wry>,
+}
+
+fn sync_menu_checks(app: &AppHandle, shared: &Shared) {
+    let (login, dock) = {
+        let inner = shared.lock();
+        (inner.launch_at_login, inner.settings.show_in_dock)
+    };
+    if let Some(c) = app.try_state::<TrayChecks>() {
+        let _ = c.login.set_checked(login);
+        let _ = c.dock.set_checked(dock);
+    }
+}
+
+fn refresh_launch_at_login(app: &AppHandle, shared: &Shared) {
+    let enabled = app.autolaunch().is_enabled().unwrap_or(false);
+    shared.lock().launch_at_login = enabled;
+}
+
+fn apply_launch_at_login(app: &AppHandle, shared: &Shared, enabled: bool) -> Result<(), String> {
+    let al = app.autolaunch();
+    let currently = al.is_enabled().unwrap_or(false);
+    if enabled != currently {
+        let r = if enabled { al.enable() } else { al.disable() };
+        r.map_err(|e| format!("Couldn't change launch at login: {e}"))?;
+    }
+    let actual = al.is_enabled().unwrap_or(enabled);
+    let snapshot = {
+        let mut inner = shared.lock();
+        inner.launch_at_login = actual;
+        inner.settings.launch_prompt_done = true;
+        inner.settings.clone()
+    };
+    let _ = shared.store.save_settings(&snapshot);
+    sync_menu_checks(app, shared);
+    Ok(())
+}
+
+/// macOS: Dock icon on/off. Windows/Linux: taskbar button on/off.
+fn apply_app_icon(app: &AppHandle, show: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if show {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        let _ = app.set_activation_policy(policy);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(w) = app.get_webview_window(WINDOW) {
+            let _ = w.set_skip_taskbar(!show);
+        }
+    }
+}
+
+fn set_show_in_dock(app: &AppHandle, shared: &Shared, show: bool) -> Result<(), String> {
+    let snapshot = {
+        let mut inner = shared.lock();
+        inner.settings.show_in_dock = show;
+        inner.settings.clone()
+    };
+    shared.store.save_settings(&snapshot)?;
+    apply_app_icon(app, show);
+    sync_menu_checks(app, shared);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------
+
+async fn run_update_check(app: AppHandle, shared: Arc<Shared>, manual: bool) {
+    {
+        let mut inner = shared.lock();
+        if matches!(inner.update.state.as_str(), "checking" | "downloading") {
+            inner.update.manual |= manual;
+            return;
+        }
+        inner.update = UpdateState {
+            state: "checking".into(),
+            manual,
+            // Keep what we already know (e.g. a finished download).
+            latest: inner.update.latest.clone(),
+            release_url: inner.update.release_url.clone(),
+            file: inner.update.file.clone(),
+            ..UpdateState::default()
+        };
+        inner.last_update_check = Some(Instant::now());
+    }
+    publish(&app, &shared);
+
+    let result = check_and_download(&app, &shared).await;
+    {
+        let mut inner = shared.lock();
+        inner.update.checked_at = Some(now_unix());
+        inner.update.progress = None;
+        if let Err(e) = result {
+            inner.update.state = "error".into();
+            inner.update.error = Some(e);
+        }
+    }
+    publish(&app, &shared);
+}
+
+async fn check_and_download(app: &AppHandle, shared: &Shared) -> Result<(), String> {
+    let http = http_client(shared, false).await?;
+    let release = match update::latest(&http).await {
+        Ok(r) => r,
+        Err(e) if e.starts_with(update::UNREACHABLE) && proxy_is_auto(shared) => {
+            update::latest(&http_client(shared, true).await?).await?
+        }
+        Err(e) => return Err(e),
+    };
+    let current = {
+        let mut inner = shared.lock();
+        inner.update.latest = Some(release.version.clone());
+        inner.update.release_url = Some(release.page_url.clone());
+        inner.version.clone()
+    };
+    if !version::is_newer(&release.version, &current) {
+        let mut inner = shared.lock();
+        inner.update.state = "upToDate".into();
+        inner.update.file = None;
+        return Ok(());
+    }
+    let (Some(name), Some(url)) = (release.asset_name.clone(), release.asset_url.clone()) else {
+        shared.lock().update.state = "noInstaller".into();
+        return Ok(());
+    };
+
+    let dir = app.path().download_dir().map_err(|e| format!("Can't find your Downloads folder: {e}"))?;
+    let dest = dir.join(version::versioned_file_name(&name, &release.version));
+    let already = std::fs::metadata(&dest)
+        .map(|m| release.asset_size == 0 || m.len() == release.asset_size)
+        .unwrap_or(false);
+    if !already {
+        {
+            let mut inner = shared.lock();
+            inner.update.state = "downloading".into();
+            inner.update.progress = Some(0.0);
+        }
+        publish(app, shared);
+        let dl = http_client_with_timeout(shared, false, Duration::from_secs(900)).await?;
+        let mut last_emit = Instant::now();
+        update::download(&dl, &url, &dest, |done, total| {
+            let fraction = total.filter(|t| *t > 0).map(|t| done as f64 / t as f64);
+            shared.lock().update.progress = fraction;
+            if last_emit.elapsed() >= Duration::from_millis(300) {
+                last_emit = Instant::now();
+                let _ = app.emit("status-updated", &build_status(shared));
+            }
+        })
+        .await?;
+    }
+
+    let notify = {
+        let mut inner = shared.lock();
+        inner.update.state = "ready".into();
+        inner.update.file = Some(dest.to_string_lossy().into_owned());
+        let first = inner.notified_update.as_deref() != Some(release.version.as_str());
+        inner.notified_update = Some(release.version.clone());
+        first
+    };
+    if notify {
+        let _ = app
+            .notification()
+            .builder()
+            .title(format!("Copilot Pacer {} is ready to install", release.version))
+            .body("Open Copilot Pacer from the menu bar / tray and click Install.")
+            .show();
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
@@ -533,8 +768,67 @@ struct DeviceLoginResult {
 }
 
 #[tauri::command]
-fn get_status(shared: SharedState<'_>) -> StatusPayload {
+fn get_status(app: AppHandle, shared: SharedState<'_>) -> StatusPayload {
+    // Login items can also be changed in System Settings; re-read each time.
+    refresh_launch_at_login(&app, &shared);
+    sync_menu_checks(&app, &shared);
     build_status(&shared)
+}
+
+#[tauri::command]
+fn set_launch_at_login(app: AppHandle, shared: SharedState<'_>, enabled: bool) -> Result<StatusPayload, String> {
+    apply_launch_at_login(&app, &shared, enabled)?;
+    publish(&app, &shared);
+    Ok(build_status(&shared))
+}
+
+#[tauri::command]
+fn check_for_updates(app: AppHandle, shared: SharedState<'_>) -> StatusPayload {
+    let s = shared.inner().clone();
+    tauri::async_runtime::spawn(run_update_check(app, s, true));
+    build_status(&shared)
+}
+
+/// Open the downloaded installer, then quit so it can replace the app.
+#[tauri::command]
+fn install_update(app: AppHandle, shared: SharedState<'_>) -> Result<(), String> {
+    let file = shared.lock().update.file.clone().ok_or("No update has been downloaded yet.")?;
+    if !std::path::Path::new(&file).exists() {
+        shared.lock().update = UpdateState::default();
+        return Err("The downloaded installer is gone. Check for updates again.".into());
+    }
+    app.opener()
+        .open_path(file, None::<&str>)
+        .map_err(|e| format!("Couldn't open the installer: {e}"))?;
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        handle.exit(0);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn reveal_update(app: AppHandle, shared: SharedState<'_>) -> Result<(), String> {
+    let file = shared.lock().update.file.clone().ok_or("No update has been downloaded yet.")?;
+    app.opener().reveal_item_in_dir(file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn dismiss_update_result(shared: SharedState<'_>) {
+    shared.lock().update.manual = false;
+}
+
+#[tauri::command]
+fn dismiss_launch_prompt(app: AppHandle, shared: SharedState<'_>) -> Result<StatusPayload, String> {
+    let snapshot = {
+        let mut inner = shared.lock();
+        inner.settings.launch_prompt_done = true;
+        inner.settings.clone()
+    };
+    shared.store.save_settings(&snapshot)?;
+    publish(&app, &shared);
+    Ok(build_status(&shared))
 }
 
 #[tauri::command]
@@ -554,6 +848,10 @@ fn save_settings(
     s.validate()?;
     s.initialized = true;
     shared.store.save_settings(&s)?;
+    let dock_changed = shared.lock().settings.show_in_dock != s.show_in_dock;
+    if dock_changed {
+        apply_app_icon(&app, s.show_in_dock);
+    }
     {
         let mut inner = shared.lock();
         // A different proxy should take effect right away.
@@ -564,6 +862,7 @@ fn save_settings(
         inner.settings = s;
     }
     shared.wake.notify_one();
+    sync_menu_checks(&app, &shared);
     publish(&app, &shared);
     Ok(build_status(&shared))
 }
@@ -721,14 +1020,28 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Menu-bar app: no Dock icon.
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
             let store = store::Store::new(app.path().app_config_dir()?);
+            let initial_settings = store.load_settings();
+            let show_in_dock = initial_settings.show_in_dock;
+            let launch_now = app.autolaunch().is_enabled().unwrap_or(false);
+
+            // Menu-bar app: no Dock icon unless the user asked for one.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(if show_in_dock {
+                tauri::ActivationPolicy::Regular
+            } else {
+                tauri::ActivationPolicy::Accessory
+            });
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Some(w) = app.get_webview_window(WINDOW) {
+                    let _ = w.set_skip_taskbar(!show_in_dock);
+                }
+            }
+
             let shared = Arc::new(Shared {
                 inner: Mutex::new(Inner {
-                    settings: store.load_settings(),
+                    settings: initial_settings,
                     usage: None,
                     error: None,
                     token: None,
@@ -740,6 +1053,11 @@ pub fn run() {
                     last_notified_day: None,
                     device_login_gen: 0,
                     proxy: None,
+                    launch_at_login: launch_now,
+                    version: app.package_info().version.to_string(),
+                    update: UpdateState::default(),
+                    last_update_check: None,
+                    notified_update: None,
                 }),
                 store,
                 wake: tokio::sync::Notify::new(),
@@ -752,8 +1070,18 @@ pub fn run() {
             let refresh_i = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
+            let login_i =
+                CheckMenuItem::with_id(app, "toggle-login", "Launch at login", true, launch_now, None::<&str>)?;
+            let dock_label = if cfg!(target_os = "macos") { "Show in Dock" } else { "Show in taskbar" };
+            let dock_i = CheckMenuItem::with_id(app, "toggle-dock", dock_label, true, show_in_dock, None::<&str>)?;
+            let update_i = MenuItem::with_id(app, "check-updates", "Check for updates…", true, None::<&str>)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Copilot Pacer", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_i, &refresh_i, &settings_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(
+                app,
+                &[&open_i, &refresh_i, &settings_i, &sep, &login_i, &dock_i, &update_i, &sep2, &quit_i],
+            )?;
+            app.manage(TrayChecks { login: login_i.clone(), dock: dock_i.clone() });
 
             let initial = icon::render(&icon::Gauge {
                 used_pct: None,
@@ -777,6 +1105,26 @@ pub fn run() {
                             let shared = app.state::<Arc<Shared>>().inner().clone();
                             do_fetch(&app, &shared).await;
                         });
+                    }
+                    "toggle-login" => {
+                        let shared = app.state::<Arc<Shared>>().inner().clone();
+                        let want = !shared.lock().launch_at_login;
+                        if let Err(e) = apply_launch_at_login(app, &shared, want) {
+                            shared.lock().error = Some(e);
+                            sync_menu_checks(app, &shared);
+                        }
+                        publish(app, &shared);
+                    }
+                    "check-updates" => {
+                        show_window(app, None);
+                        let shared = app.state::<Arc<Shared>>().inner().clone();
+                        tauri::async_runtime::spawn(run_update_check(app.clone(), shared, true));
+                    }
+                    "toggle-dock" => {
+                        let shared = app.state::<Arc<Shared>>().inner().clone();
+                        let want = !shared.lock().settings.show_in_dock;
+                        let _ = set_show_in_dock(app, &shared, want);
+                        publish(app, &shared);
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -825,6 +1173,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            set_launch_at_login,
+            dismiss_launch_prompt,
+            check_for_updates,
+            install_update,
+            reveal_update,
+            dismiss_update_result,
             refresh,
             save_settings,
             set_excluded_days,
@@ -839,12 +1193,16 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Copilot Pacer")
-        .run(|_app, event| {
+        .run(|_app, event| match event {
             // Keep running in the tray when the window is closed.
-            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
                 if code.is_none() {
                     api.prevent_exit();
                 }
             }
+            // Clicking the Dock icon (when shown) opens the popup.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => show_window(_app, None),
+            _ => {}
         });
 }

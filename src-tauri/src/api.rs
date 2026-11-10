@@ -83,9 +83,14 @@ pub enum ProxyChoice {
 }
 
 pub fn client(choice: &ProxyChoice) -> Result<reqwest::Client, String> {
+    client_with_timeout(choice, Duration::from_secs(20))
+}
+
+/// Same as [`client`], with a custom overall timeout (e.g. for downloads).
+pub fn client_with_timeout(choice: &ProxyChoice, timeout: Duration) -> Result<reqwest::Client, String> {
     let mut b = reqwest::Client::builder()
         .user_agent(USER_AGENT)
-        .timeout(Duration::from_secs(20))
+        .timeout(timeout)
         .connect_timeout(Duration::from_secs(10));
     match choice {
         ProxyChoice::System => {}

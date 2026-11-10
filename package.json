@@ -1,7 +1,7 @@
 {
   "name": "copilot-pacer",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Menu-bar / system-tray app that paces your GitHub Copilot credit usage against working days",
   "scripts": {
@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-autostart": "^2.0.0",
     "date-holidays": "^3.23.0"
   },
   "devDependencies": {

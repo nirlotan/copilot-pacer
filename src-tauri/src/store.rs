@@ -38,6 +38,12 @@ pub struct Settings {
     pub proxy_url: String,
     /// Show "10%" next to the menu-bar icon (macOS only).
     pub show_percent_in_menu_bar: bool,
+    /// macOS: show a Dock icon. Windows: show a taskbar button while open.
+    pub show_in_dock: bool,
+    /// The one-time "launch at login?" prompt has been answered.
+    pub launch_prompt_done: bool,
+    /// Check GitHub for new versions daily and download them.
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -58,6 +64,9 @@ impl Default for Settings {
             proxy_mode: "auto".into(),
             proxy_url: String::new(),
             show_percent_in_menu_bar: true,
+            show_in_dock: false,
+            launch_prompt_done: false,
+            check_updates: true,
         }
     }
 }

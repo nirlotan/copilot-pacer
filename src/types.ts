@@ -20,6 +20,10 @@ export interface Settings {
   proxyMode: 'auto' | 'manual' | 'none';
   proxyUrl: string;
   showPercentInMenuBar: boolean;
+  /** macOS: Dock icon. Windows: taskbar button while open. */
+  showInDock: boolean;
+  launchPromptDone: boolean;
+  checkUpdates: boolean;
 }
 
 export interface Usage {
@@ -62,6 +66,20 @@ export interface Status {
   fetching: boolean;
   settings: Settings;
   network: { mode: string; proxy: string | null; source: string | null };
+  launchAtLogin: boolean;
+  version: string;
+  update: UpdateState;
+}
+
+export interface UpdateState {
+  state: '' | 'checking' | 'upToDate' | 'downloading' | 'ready' | 'noInstaller' | 'error';
+  manual: boolean;
+  latest: string | null;
+  releaseUrl: string | null;
+  progress: number | null;
+  file: string | null;
+  error: string | null;
+  checkedAt: number | null;
 }
 
 export interface DeviceCode {

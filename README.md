@@ -62,8 +62,14 @@ reset, and you won't leave half your credits unused either.
   if your plan differs.
 - **Works on corporate networks.** It finds your proxy automatically,
   including PAC/WPAD auto-config files, or you can enter one yourself.
-- **Light and dark mode**, launch at login, and a small footprint (a native
-  app of about 10 MB, not Electron).
+- **Starts with your computer, if you want it to.** Turn on *Launch at login*
+  from the tray menu or Settings. The app lives in the menu bar / system tray,
+  and you choose whether it also shows in the Dock (macOS) or taskbar (Windows).
+- **Keeps itself up to date.** Copilot Pacer checks GitHub for new releases
+  daily (or on demand: *Check for updates…* in the tray menu). It downloads the
+  new installer to your Downloads folder and offers a one-click **Install**.
+- **Light and dark mode** and a tiny footprint: a native app, not Electron,
+  with a 5 MB download on macOS and 2 MB on Windows.
 
 <br clear="right">
 
@@ -206,6 +212,20 @@ publishes a release with fixed file names, so the download links above always
 point at the newest version. Every push to `main` also builds installers,
 which you can download from the run's **Artifacts**.
 
+### Signing the macOS build
+
+When these repository secrets are set (**Settings → Secrets and variables →
+Actions**), CI signs and notarizes the macOS app. Without them, it builds
+unsigned.
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_CERTIFICATE` | Your *Developer ID Application* certificate + key exported as `.p12`, base64-encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | The `.p12` export password |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_P8` | App Store Connect API key for notarization: issuer ID, key ID, `.p8` file contents (preferred) |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Alternative to the API key: Apple ID, app-specific password, team ID |
+
 <details>
 <summary>Project layout</summary>
 
@@ -217,6 +237,7 @@ which you can download from the run's **Artifacts**.
 | `src-tauri/src/auth.rs` | Keychain, `gh` token lookup, GitHub device sign-in |
 | `src-tauri/src/proxy.rs`, `proxy_util.rs`, `pac_eval.js` | Automatic proxy detection (env, macOS PAC via JXA, Windows resolver, login shell) |
 | `src-tauri/src/store.rs` | Settings and usage history |
+| `src-tauri/src/update.rs`, `version.rs` | Update check against GitHub Releases, installer download |
 | `src-tauri/src/lib.rs` | Tray, popup window, polling, commands, notifications |
 | `src/` | Popup UI and holiday calendars (`date-holidays`) |
 

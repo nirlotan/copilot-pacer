@@ -1,10 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import {
-  disable as disableAutostart,
-  enable as enableAutostart,
-  isEnabled as autostartIsEnabled,
-} from '@tauri-apps/plugin-autostart';
 
 import { chartSvg } from './chart';
 import { days, escapeHtml as h, lastDayOf, paceSentence, pct, relativeTime, shortDate } from './format';
@@ -26,8 +21,7 @@ let status: Status | null = null;
 let view: 'overview' | 'settings' = 'overview';
 let draft: Settings | null = null;
 let device: { code: DeviceCode; error?: string } | null = null;
-let autostart = false;
-let autostartDraft = false;
+let launchDraft = false;
 let saveMessage = '';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -148,7 +142,65 @@ function renderOverview() {
   const footer = `<footer><span id="updated">Updated ${relativeTime(u.fetchedAt)}</span>${via ? ` · ${via}${who}` : ''}
     <button class="link" data-act="quit">Quit</button></footer>`;
 
-  root.innerHTML = top + error + hero + chart + stats + cycle + holidays + footer;
+  const launchPrompt =
+    !s.settings.launchPromptDone && !s.launchAtLogin
+      ? `<div class="prompt"><span>Start Copilot Pacer automatically when you log in?</span>
+          <span class="prompt-actions"><button class="primary" data-act="launch-yes">Turn on</button>
+          <button class="link" data-act="launch-no">Not now</button></span></div>`
+      : '';
+
+  root.innerHTML = top + updateBanner(s) + launchPrompt + error + hero + chart + stats + cycle + holidays + footer;
+}
+
+function updateBanner(s: Status): string {
+  const u = s.update;
+  const v = u.latest ? `v${h(u.latest)}` : 'a new version';
+  const notes = u.releaseUrl ? `<button class="link" data-act="release-notes">What's new</button>` : '';
+  switch (u.state) {
+    case 'downloading':
+      return `<div class="prompt"><span>Downloading Copilot Pacer ${v}…${
+        u.progress != null ? ` ${Math.round(u.progress * 100)}%` : ''
+      }</span></div>`;
+    case 'ready':
+      return `<div class="prompt"><span><b>Copilot Pacer ${v}</b> is ready to install.</span>
+        <span class="prompt-actions"><button class="primary" data-act="install-update">Install</button>
+        <button class="link" data-act="reveal-update">Show file</button>${notes}</span></div>`;
+    case 'noInstaller':
+      return `<div class="prompt"><span>Copilot Pacer ${v} is available.</span>
+        <span class="prompt-actions"><button class="primary" data-act="release-notes">Download page</button></span></div>`;
+  }
+  if (!u.manual) return '';
+  if (u.state === 'checking') return `<div class="prompt"><span>Checking for updates…</span></div>`;
+  if (u.state === 'upToDate')
+    return `<div class="prompt"><span>You're on the latest version (${h(s.version)}).</span>
+      <span class="prompt-actions"><button class="link" data-act="dismiss-update">OK</button></span></div>`;
+  if (u.state === 'error')
+    return `<p class="banner">Update check failed: ${h(u.error ?? 'unknown error')}
+      <button class="link" data-act="dismiss-update">Dismiss</button></p>`;
+  return '';
+}
+
+function updateStatusText(): string {
+  const s = status;
+  if (!s) return '';
+  const u = s.update;
+  const v = u.latest ? `v${h(u.latest)}` : '';
+  switch (u.state) {
+    case 'checking':
+      return 'Checking…';
+    case 'downloading':
+      return `Downloading ${v}…${u.progress != null ? ` ${Math.round(u.progress * 100)}%` : ''}`;
+    case 'ready':
+      return `${v} downloaded and ready to install. <button type="button" class="link" data-act="install-update">Install</button>`;
+    case 'noInstaller':
+      return `${v} is available. <button type="button" class="link" data-act="release-notes">Download page</button>`;
+    case 'upToDate':
+      return "You're up to date.";
+    case 'error':
+      return `<span class="warn">${h(u.error ?? 'Update check failed')}</span>`;
+    default:
+      return '';
+  }
 }
 
 function signInCard(s: Status) {
@@ -201,6 +253,20 @@ function renderSettings() {
     ) +
     `<form id="settings-form" class="settings" autocomplete="off">
       <fieldset>
+        <legend>General</legend>
+        <label class="toggle"><input type="checkbox" name="launchAtLogin" ${launchDraft ? 'checked' : ''}> Launch at login</label>
+        <label class="toggle"><input type="checkbox" name="showInDock" ${d.showInDock ? 'checked' : ''}> ${
+          IS_MAC ? 'Show in Dock' : 'Show in taskbar while open'
+        }</label>
+        ${IS_MAC ? `<label class="toggle"><input type="checkbox" name="showPercentInMenuBar" ${d.showPercentInMenuBar ? 'checked' : ''}> Show % next to the menu-bar icon</label>` : ''}
+        <p class="hint">${IS_MAC ? 'Copilot Pacer always stays in the menu bar.' : 'Copilot Pacer always stays in the system tray.'}</p>
+        <label class="toggle"><input type="checkbox" name="checkUpdates" ${d.checkUpdates ? 'checked' : ''}> Check for updates automatically</label>
+        <div class="field"><span>Version ${h(s?.version ?? '')}</span>
+          <button type="button" data-act="check-updates">Check now</button></div>
+        <p class="hint" id="update-status">${updateStatusText()}</p>
+      </fieldset>
+
+      <fieldset>
         <legend>Billing cycle</legend>
         <label class="field"><span>Credits reset on day</span>
           <select name="resetDay">${Array.from({ length: 31 }, (_, i) => i + 1)
@@ -249,8 +315,6 @@ function renderSettings() {
         <label class="toggle"><input type="checkbox" name="notifyOverPace" ${d.notifyOverPace ? 'checked' : ''}> Notify me when I'm over pace</label>
         <label class="field"><span>Over-pace tolerance</span>
           <span class="suffix"><input type="number" name="overMargin" min="0" max="50" step="0.5" value="${d.overMargin}"> pts</span></label>
-        ${IS_MAC ? `<label class="toggle"><input type="checkbox" name="showPercentInMenuBar" ${d.showPercentInMenuBar ? 'checked' : ''}> Show % next to the menu-bar icon</label>` : ''}
-        <label class="toggle"><input type="checkbox" name="autostart" ${autostartDraft ? 'checked' : ''}> Launch at login</label>
       </fieldset>
 
       <fieldset>
@@ -323,18 +387,15 @@ function syncDraftFromForm() {
   if (el('showPercentInMenuBar')) draft.showPercentInMenuBar = checked('showPercentInMenuBar');
   draft.proxyMode = (el('proxyMode')?.value as Settings['proxyMode']) ?? draft.proxyMode;
   draft.proxyUrl = el('proxyUrl')?.value.trim() ?? '';
-  autostartDraft = checked('autostart');
+  draft.showInDock = checked('showInDock');
+  launchDraft = checked('launchAtLogin');
+  draft.checkUpdates = checked('checkUpdates');
 }
 
 async function openSettings() {
   if (!status) return;
   draft = structuredClone(status.settings);
-  try {
-    autostart = await autostartIsEnabled();
-  } catch {
-    autostart = false;
-  }
-  autostartDraft = autostart;
+  launchDraft = status.launchAtLogin;
   saveMessage = '';
   view = 'settings';
   render();
@@ -347,10 +408,8 @@ async function saveSettings() {
   draft.excludedDays = computeExcludedDays(draft.holidayRegions, draft.holidayTypes, draft.customDaysOff);
   try {
     status = await invoke<Status>('save_settings', { settings: draft });
-    if (autostartDraft !== autostart) {
-      if (autostartDraft) await enableAutostart();
-      else await disableAutostart();
-      autostart = autostartDraft;
+    if (launchDraft !== status.launchAtLogin) {
+      status = await invoke<Status>('set_launch_at_login', { enabled: launchDraft });
     }
     view = 'overview';
     draft = null;
@@ -415,6 +474,49 @@ root.addEventListener('click', async (ev) => {
     case 'back':
       view = 'overview';
       draft = null;
+      return render();
+    case 'check-updates':
+      try {
+        status = await invoke<Status>('check_for_updates');
+      } catch (e) {
+        if (status) status.error = String(e);
+      }
+      if (view === 'settings') {
+        const el = document.getElementById('update-status');
+        if (el) el.innerHTML = 'Checking…';
+      } else render();
+      return;
+    case 'install-update':
+      try {
+        await invoke('install_update');
+      } catch (e) {
+        if (status) {
+          status.update.state = 'error';
+          status.update.manual = true;
+          status.update.error = String(e);
+        }
+        render();
+      }
+      return;
+    case 'reveal-update':
+      await invoke('reveal_update').catch(() => {});
+      return;
+    case 'release-notes':
+      if (status?.update.releaseUrl) await invoke('open_url', { url: status.update.releaseUrl }).catch(() => {});
+      return;
+    case 'dismiss-update':
+      await invoke('dismiss_update_result');
+      if (status) status.update.manual = false;
+      return render();
+    case 'launch-yes':
+    case 'launch-no':
+      try {
+        status = await invoke<Status>(act === 'launch-yes' ? 'set_launch_at_login' : 'dismiss_launch_prompt', {
+          enabled: true,
+        });
+      } catch (e) {
+        if (status) status.error = String(e);
+      }
       return render();
     case 'quit':
       return invoke('quit_app');
@@ -529,6 +631,8 @@ async function init() {
       if (acc) acc.innerHTML = accountBlock();
       const net = document.getElementById('proxy-detected');
       if (net) net.innerHTML = networkText();
+      const upd = document.getElementById('update-status');
+      if (upd) upd.innerHTML = updateStatusText();
     }
   });
   await listen<boolean>('fetching', () => {
