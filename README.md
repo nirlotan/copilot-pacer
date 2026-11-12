@@ -136,6 +136,9 @@ shows, right in your menu bar, whether you're ahead of that line or behind it.
 
 Older versions and release notes are on the [Releases page](https://github.com/nirlotan/copilot-pacer/releases).
 
+**Code signing policy:** Windows builds are signed with a free certificate from
+[SignPath Foundation](https://signpath.org); see the [code signing policy](CODE_SIGNING_POLICY.md).
+
 <details>
 <summary><b>macOS</b> installation</summary>
 
@@ -154,8 +157,8 @@ Older versions and release notes are on the [Releases page](https://github.com/n
 <summary><b>Windows</b> installation</summary>
 
 1. Run `Copilot-Pacer-Windows-Setup.exe`.
-2. If SmartScreen shows "Windows protected your PC", click **More info →
-   Run anyway**.
+2. If SmartScreen shows "Windows protected your PC" (Windows warns about new
+   downloads until they build up a reputation), click **More info → Run anyway**.
 3. The ring appears in the system tray. If it's hidden, click the **^** arrow
    and drag the icon onto the taskbar to keep it visible.
 
@@ -218,6 +221,19 @@ authorise the sign-in for your organisation.
 - Your token stays in the **macOS Keychain / Windows Credential Manager**.
 - Settings and a small usage history stay on your computer. No analytics,
   no telemetry, no servers of ours.
+- Update checks can be turned off in Settings. Details: [privacy policy](PRIVACY.md).
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [nirlotan](https://github.com/nirlotan)
+- Approvers: [nirlotan](https://github.com/nirlotan)
+
+Only builds made from this repository by its GitHub Actions workflow are signed, and each
+release is approved by hand. The full [code signing policy](CODE_SIGNING_POLICY.md) and
+[privacy policy](PRIVACY.md) are in the repository.
 
 ## FAQ
 
@@ -331,6 +347,7 @@ macOS app. Without them, it builds unsigned.
 ## Acknowledgements
 
 Built with [Tauri](https://tauri.app) and [date-holidays](https://github.com/commenthol/date-holidays).
+Released under the [MIT License](LICENSE).
 Usage data comes from GitHub Copilot.
 
 <sub>Copilot Pacer is an independent project and is not affiliated with or endorsed by GitHub.

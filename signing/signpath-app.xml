@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "app" (paste into the Copilot Pacer project on
+  app.signpath.io). The Build workflow uploads copilot-pacer.exe on its own (not
+  zipped) before the installers are made, so the installers carry the signed
+  program. Product name and version are enforced, as SignPath Foundation requires.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <pe-file path="copilot-pacer.exe" product-name="Copilot Pacer" product-version="${version}">
+    <authenticode-sign />
+  </pe-file>
+</artifact-configuration>

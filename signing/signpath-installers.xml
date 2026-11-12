@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "installers" (paste into the Copilot Pacer
+  project on app.signpath.io). The Build workflow uploads a ZIP with the NSIS
+  setup (nsis/) and the MSI (msi/), both built around the already-signed
+  copilot-pacer.exe.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="nsis/*-setup.exe" product-name="Copilot Pacer" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <msi-file path="msi/*.msi">
+      <authenticode-sign />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>
